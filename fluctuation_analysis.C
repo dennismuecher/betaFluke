@@ -4,8 +4,6 @@
 #include <TMath.h>
 #include <TGraph.h>
 #include <TLegend.h>
-#include <TBox.h>
-#include <TLine.h>
 #include <iostream>
 #include <vector>
 
@@ -61,6 +59,7 @@ TGraph* CalculateAutocorrelation(TH1D* hStationary, double Emin, double Emax, in
     return grAuto;
 }
 
+
 double GetTrueLevelDensity(TH1D* hInput, double Emin, double Emax) {
     int bin_min = hInput->GetXaxis()->FindBin(Emin);
     int bin_max = hInput->GetXaxis()->FindBin(Emax);
@@ -78,7 +77,7 @@ void fluctuation_analysis() {
     double sigma = 0.5 * dE;
     double sigma_ratio = 3.0;
     double sigma_large = sigma_ratio * sigma;
-    double alpha = 0.7;
+    double alpha = 1.0;
     double f = 1.0 - (sigma/sigma_large)*(sigma/sigma_large);
     
     const int nIntervals = 10;
@@ -100,14 +99,50 @@ void fluctuation_analysis() {
     file->Close();
     
     std::cout << "Loaded: " << histName << std::endl;
+    std::cout << "Parameters: sigma = " << sigma << " MeV, sigma_large = " << sigma_large 
+              << " MeV, alpha = " << alpha << ", f = " << f << std::endl;
+    std::cout << "\n========================================" << std::endl;
     
     TH1D* hSmooth = GaussianSmooth(hInput, sigma, "g_Ex");
     TH1D* hSmoothLarge = GaussianSmooth(hInput, sigma_large, "g_large_Ex");
     TH1D* hStationary = (TH1D*)hSmoothLarge->Clone("d_Ex");
     hStationary->Divide(hSmooth);
     
+    // Create 4-panel visualization canvas
+    TCanvas* cViz = new TCanvas("cViz", "Fluctuation Analysis Visualization", 1200, 900);
+    cViz->Divide(2, 2);
+    
+    // Panel 1: Raw histogram
+    cViz->cd(1);
+    hInput->SetLineColor(kBlack);
+    hInput->SetLineWidth(2);
+    hInput->SetTitle("Raw Level Spectrum;E_{x} (MeV);Counts");
+    hInput->Draw("HIST");
+    
+    // Panel 2: Smoothed histograms
+    cViz->cd(2);
+    hSmooth->SetLineColor(kBlue);
+    hSmooth->SetLineWidth(2);
+    hSmooth->SetTitle("Smoothed Spectra;E_{x} (MeV);Smoothed Counts");
+    hSmooth->Draw("HIST");
+    hSmoothLarge->SetLineColor(kRed);
+    hSmoothLarge->SetLineWidth(2);
+    hSmoothLarge->Draw("HIST SAME");
+    TLegend* leg1 = new TLegend(0.6, 0.7, 0.9, 0.9);
+    leg1->AddEntry(hSmooth, Form("#sigma = %.4f MeV", sigma), "l");
+    leg1->AddEntry(hSmoothLarge, Form("#sigma = %.4f MeV", sigma_large), "l");
+    leg1->Draw();
+    
+    // Panel 3: Stationary spectrum
+    cViz->cd(3);
+    hStationary->SetLineColor(kGreen+2);
+    hStationary->SetLineWidth(2);
+    hStationary->SetTitle("Stationary Spectrum d(E_{x});E_{x} (MeV);d(E_{x})");
+    hStationary->Draw("HIST");
+    
     std::vector<double> E_central, rho_fluctuation, rho_true;
     
+    // Calculate level densities for each interval
     for(int i = 0; i < nIntervals; i++) {
         double E_min = E_start + i * interval_width;
         double E_max = E_min + interval_width;
@@ -122,12 +157,36 @@ void fluctuation_analysis() {
         E_central.push_back(E_center);
         rho_fluctuation.push_back(level_density);
         rho_true.push_back(true_density);
+        
+        // Print results for each interval
+        std::cout << "Interval " << i+1 << ": E = [" << E_min << ", " << E_max << "] MeV" << std::endl;
+        std::cout << "  C(0) - 1 = " << C_0_minus_1 << std::endl;
+        std::cout << "  Mean level spacing <D> = " << mean_spacing << " MeV" << std::endl;
+        std::cout << "  Level density (fluctuation) = " << level_density << " states/MeV" << std::endl;
+        std::cout << "  Level density (true) = " << true_density << " states/MeV" << std::endl;
+        std::cout << "----------------------------------------" << std::endl;
+        
+        // Panel 4: Show autocorrelation function for first interval as example
+        if(i == 0) {
+            cViz->cd(4);
+            grAuto->SetTitle("Autocorrelation Function (first interval);#epsilon (MeV);C(#epsilon)");
+            grAuto->SetMarkerStyle(20);
+            grAuto->SetMarkerSize(0.8);
+            grAuto->SetLineWidth(2);
+            grAuto->Draw("APL");
+        }
+        
         delete grAuto;
     }
     
+    // Save visualization canvas
+    cViz->SaveAs("fluctuation_visualization.pdf");
+    std::cout << "\nVisualization saved to: fluctuation_visualization.pdf" << std::endl;
+    
+    // Create level density comparison plot
     TCanvas* c1 = new TCanvas("c1", "Level Density Comparison", 900, 700);
     TGraph* grFluctuation = new TGraph(nIntervals, &E_central[0], &rho_fluctuation[0]);
-    grFluctuation->SetTitle("Level Density;E_{x} (MeV);#rho (states/MeV)");
+    grFluctuation->SetTitle("Level Density Comparison;E_{x} (MeV);#rho (states/MeV)");
     grFluctuation->SetMarkerStyle(20);
     grFluctuation->SetMarkerColor(kBlue);
     grFluctuation->SetMarkerSize(1.5);
@@ -150,4 +209,5 @@ void fluctuation_analysis() {
     leg->Draw();
     
     c1->SaveAs("level_density_comparison.pdf");
+    std::cout << "Comparison saved to: level_density_comparison.pdf" << std::endl;
 }
