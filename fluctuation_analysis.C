@@ -80,41 +80,43 @@ double BetaPhaseSpace(double E, double Qbeta) {
 
 // Create histogram of beta-decay-populated levels
 TH1D* CreateBetaDecaySpectrum(TH1D* hLevelDensity, double Qbeta, double binWidth) {
-    // Calculate level density in each bin
     int nbins = hLevelDensity->GetNbinsX();
     double xmin = hLevelDensity->GetXaxis()->GetXmin();
     double xmax = hLevelDensity->GetXaxis()->GetXmax();
     
+    // First, create a smoothed version of the level density
+    TH1D* hSmoothLevelDensity = GaussianSmooth(hLevelDensity, 0.02, "temp_smooth");
+    
     TH1D* hBetaStrength = new TH1D("hBetaStrength", "Beta Decay Strength", nbins, xmin, xmax);
     
-    TRandom3 rnd(0); // Random number generator
+    TRandom3 rnd(0);
     
-    // For each energy bin, calculate beta strength and populate levels
+    // For each energy bin, calculate beta strength
     for(int i = 1; i <= nbins; i++) {
-        double E = hLevelDensity->GetBinCenter(i);
-        if(E >= Qbeta) continue; // No population above Q-value
+        double E = hSmoothLevelDensity->GetBinCenter(i);
+        if(E >= Qbeta) continue;
         
-        double rho = GetTrueLevelDensity(hLevelDensity, E - binWidth/2, E + binWidth/2);
+        // Use smoothed level density
+        double rho = hSmoothLevelDensity->GetBinContent(i) / binWidth;
         double phase_space = BetaPhaseSpace(E, Qbeta);
         double beta_strength = rho * phase_space;
-        
-        // Normalize beta_strength to get average number of levels populated
-        // We'll scale it so we get reasonable statistics
-        double norm_factor = 0.00001; // Adjust this to get desired statistics
+        //double beta_strength = rho;
+        // Increase normalization for better statistics
+        double norm_factor = 1;  // Increased from 0.00001
         double avg_levels = beta_strength * norm_factor * binWidth;
         
-        // Sample from Poisson distribution to get discrete number of levels
         int n_levels = rnd.Poisson(avg_levels);
         hBetaStrength->SetBinContent(i, n_levels);
     }
     
+    delete hSmoothLevelDensity;
     return hBetaStrength;
 }
 
 void fluctuation_analysis() {
     const char* inputFile = "output1.root";
     const char* histName = "hLevelSpectrum_J5_real0";
-    double dE = 0.010;
+    double dE = 0.0500;
     double sigma = 0.5 * dE;
     double sigma_ratio = 3.0;
     double sigma_large = sigma_ratio * sigma;
@@ -122,10 +124,10 @@ void fluctuation_analysis() {
     double f = 1.0 - (sigma/sigma_large)*(sigma/sigma_large);
     
     // Beta decay parameters
-    double Qbeta = 8.0; // MeV
+    double Qbeta = 10.0; // MeV
     
-    const int nIntervals = 10;
-    double E_start = 4.5;
+    const int nIntervals = 15;
+    double E_start = 2.5;
     double interval_width = 0.5;
     
     TFile* file = TFile::Open(inputFile);
@@ -224,7 +226,7 @@ void fluctuation_analysis() {
         double C_0_minus_1 = grAuto->GetPointY(0) - 1.0;
         double mean_spacing = (C_0_minus_1 * 2.0 * sigma * TMath::Sqrt(TMath::Pi())) / (alpha * f);
         double level_density = 1.0 / mean_spacing;
-        double true_density = GetTrueLevelDensity(hBetaDecay, E_min, E_max);
+        double true_density = GetTrueLevelDensity(hInput, E_min, E_max);
         
         E_central.push_back(E_center);
         rho_fluctuation.push_back(level_density);
@@ -293,7 +295,7 @@ void fluctuation_analysis() {
         
         TLegend* leg = new TLegend(0.55, 0.7, 0.9, 0.9);
         leg->AddEntry(grFluctuation, "Fluctuation analysis", "lp");
-        leg->AddEntry(grTrue, "Beta-decay populated", "lp");
+        leg->AddEntry(grTrue, "True level density", "lp");
         leg->Draw();
         
         c1->SaveAs("beta_decay_level_density.pdf");
